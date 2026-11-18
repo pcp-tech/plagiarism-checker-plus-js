@@ -1,15 +1,29 @@
 {
   "name": "plagiarism-checker-plus",
   "version": "1.0.0",
-  "description": "Official JavaScript and TypeScript client for the Plagiarism Checker Plus API: plagiarism checks with sources and AI writing detection.",
-  "keywords": ["plagiarism checker", "ai detector", "ai content detection", "plagiarism", "api"],
-  "homepage": "https://plagiarismcheckerplus.com",
+  "description": "Official JavaScript/TypeScript client for the Plagiarism Checker Plus API: plagiarism checker API with linked sources and AI detector API with a per-sentence AI likelihood.",
+  "keywords": [
+    "plagiarism checker api",
+    "ai detector api",
+    "ai detection",
+    "plagiarism checker",
+    "plagiarism detection",
+    "ai content detector",
+    "ai writing detection",
+    "originality",
+    "plagiarism",
+    "sdk",
+    "api client",
+    "typescript"
+  ],
+  "homepage": "https://plagiarismcheckerplus.com/integrations/api",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/pcp-tech/plagiarism-checker-plus-js.git",
-    "directory": "js"
+    "url": "git+https://github.com/pcp-tech/plagiarism-checker-plus-js.git"
   },
-  "bugs": { "url": "https://github.com/pcp-tech/plagiarism-checker-plus-js/issues" },
+  "bugs": {
+    "url": "https://github.com/pcp-tech/plagiarism-checker-plus-js/issues"
+  },
   "author": "Plagiarism Checker Plus <contact@plagiarismcheckerplus.com> (https://plagiarismcheckerplus.com)",
   "license": "MIT",
   "main": "./src/index.cjs",
@@ -17,14 +31,31 @@
   "types": "./src/index.d.ts",
   "exports": {
     ".": {
-      "types": "./src/index.d.ts",
-      "import": "./src/index.mjs",
-      "require": "./src/index.cjs"
-    }
+      "import": {
+        "types": "./src/index.d.ts",
+        "default": "./src/index.mjs"
+      },
+      "require": {
+        "types": "./src/index.d.ts",
+        "default": "./src/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
   },
-  "files": ["src", "README.md", "LICENSE"],
-  "engines": { "node": ">=18" },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
-    "test": "node --test test/client.test.mjs"
+    "test": "node --test test/client.test.mjs",
+    "prepublishOnly": "npm test"
+  },
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
   }
 }

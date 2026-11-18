@@ -88,6 +88,14 @@ export declare const ErrorCodes: {
   readonly TEXT_TOO_SHORT: "text_too_short";
   readonly DOC_TOO_LONG: "doc_too_long";
   readonly INSUFFICIENT_WORDS: "insufficient_words";
+  readonly INVALID_REQUEST: "invalid_request";
+  readonly UNAUTHORIZED: "unauthorized";
+  readonly INVALID_API_KEY: "invalid_api_key";
+  readonly KEY_REVOKED: "key_revoked";
+  readonly EMAIL_UNVERIFIED: "email_unverified";
+  readonly NOT_FOUND: "not_found";
+  readonly RATE_LIMITED: "rate_limited";
+  readonly WORKERS_UNAVAILABLE: "workers_unavailable";
 };
 
 export declare class PlagiarismCheckerPlusError extends Error {
