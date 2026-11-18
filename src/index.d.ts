@@ -60,7 +60,7 @@ export interface ScanList {
   pagination: { page: number; limit: number; total: number; totalPages: number };
 }
 
-/** The one-time free API trial (2,000 words) for free accounts. */
+/** The one-time free API trial (5,000 words) for free accounts. */
 export interface AccountTrial {
   wordsTotal: number;
   wordsUsed: number;
