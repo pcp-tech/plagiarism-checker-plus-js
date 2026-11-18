@@ -3,21 +3,35 @@
 // Client for the Plagiarism Checker Plus public API (spec/openapi.json in this repository).
 
 const DEFAULT_BASE_URL = "https://app.plagiarismcheckerplus.com/api/public/v1";
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
+
+/** Header that carries the webhook signature. */
+const WEBHOOK_SIGNATURE_HEADER = "PCP-Signature";
+/** How old a signed webhook timestamp may be, in seconds, before it is rejected. */
+const WEBHOOK_TOLERANCE_SECONDS = 300;
 
 const ErrorCodes = Object.freeze({
+  /** @deprecated No longer returned: free accounts get a free API trial and free test keys. */
   PLAN_REQUIRED: "plan_required",
   TEXT_TOO_SHORT: "text_too_short",
   DOC_TOO_LONG: "doc_too_long",
+  /** 402: not enough words across all sources. Body has wordsNeeded, wordsAvailable, balances, billingUrl. */
   INSUFFICIENT_WORDS: "insufficient_words",
+  /** 402: the free API trial cannot cover the request. Body has wordsNeeded, trialRemaining, trialTotal, billingUrl. */
+  TRIAL_EXHAUSTED: "trial_exhausted",
+  /** 402: the key's monthly word cap would be exceeded. Body has wordsNeeded, monthlyWordCap, usedThisMonth. */
+  KEY_CAP_REACHED: "key_cap_reached",
   INVALID_REQUEST: "invalid_request",
+  INVALID_JSON: "invalid_json",
   UNAUTHORIZED: "unauthorized",
   INVALID_API_KEY: "invalid_api_key",
   KEY_REVOKED: "key_revoked",
   EMAIL_UNVERIFIED: "email_unverified",
+  FORBIDDEN: "forbidden",
   NOT_FOUND: "not_found",
   RATE_LIMITED: "rate_limited",
   WORKERS_UNAVAILABLE: "workers_unavailable",
+  INTERNAL_ERROR: "internal_error",
 });
 
 class PlagiarismCheckerPlusError extends Error {
@@ -46,6 +60,48 @@ function parseRetryAfter(value) {
   if (Number.isFinite(seconds)) return Math.max(0, seconds);
   const date = Date.parse(value);
   return Number.isNaN(date) ? null : Math.max(0, (date - Date.now()) / 1000);
+}
+
+/**
+ * Check a webhook's PCP-Signature header against the raw request body.
+ *
+ * The header is `t=<unix seconds>,v1=<hex HMAC-SHA256(secret, "<t>.<raw body>")>`.
+ * Pass the body exactly as received (string or bytes), before any JSON parsing.
+ * Returns false for a missing or malformed header, a wrong signature, or a
+ * timestamp more than `tolerance` seconds from now. Uses node:crypto, so it
+ * runs in Node.js, Bun and Deno.
+ *
+ * @param {string} secret The endpoint's signing secret (whsec_...).
+ * @param {string | null | undefined} header The PCP-Signature header value.
+ * @param {string | Uint8Array} body The raw request body.
+ * @param {{ tolerance?: number, now?: number }} [options] tolerance in seconds (default 300); now in unix seconds.
+ * @returns {boolean}
+ */
+function verifyWebhookSignature(secret, header, body, { tolerance = WEBHOOK_TOLERANCE_SECONDS, now } = {}) {
+  if (!secret || !header || body === undefined || body === null) return false;
+  let timestamp = null;
+  const signatures = [];
+  for (const part of String(header).split(",")) {
+    const index = part.indexOf("=");
+    if (index < 0) continue;
+    const key = part.slice(0, index).trim();
+    const value = part.slice(index + 1).trim();
+    if (key === "t" && /^\d+$/.test(value)) timestamp = Number(value);
+    else if (key === "v1" && /^[0-9a-fA-F]+$/.test(value)) signatures.push(value.toLowerCase());
+  }
+  if (timestamp === null || signatures.length === 0) return false;
+  const nowSeconds = now === undefined ? Math.floor(Date.now() / 1000) : now;
+  if (Math.abs(nowSeconds - timestamp) > tolerance) return false;
+  const crypto = require("node:crypto");
+  const expected = crypto
+    .createHmac("sha256", secret)
+    .update(`${timestamp}.`)
+    .update(typeof body === "string" ? body : Buffer.from(body))
+    .digest();
+  return signatures.some((signature) => {
+    const received = Buffer.from(signature, "hex");
+    return received.length === expected.length && crypto.timingSafeEqual(received, expected);
+  });
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -121,7 +177,7 @@ class PlagiarismCheckerPlus {
     return this.request("GET", "/scans", { query: { page, limit } });
   }
 
-  /** Plan and remaining words. */
+  /** Plan, word balances, free API trial, auto top-up and this key's mode and cap. */
   getAccount() {
     return this.request("GET", "/account");
   }
@@ -156,6 +212,9 @@ module.exports = {
   ErrorCodes,
   DEFAULT_BASE_URL,
   parseRetryAfter,
+  verifyWebhookSignature,
+  WEBHOOK_SIGNATURE_HEADER,
+  WEBHOOK_TOLERANCE_SECONDS,
   // Lets `require("plagiarism-checker-plus").default` match the default export in index.d.ts.
   default: PlagiarismCheckerPlus,
 };

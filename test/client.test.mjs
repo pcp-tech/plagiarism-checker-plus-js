@@ -1,7 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import PlagiarismCheckerPlus, { PlagiarismCheckerPlusError, ScanTimeoutError, ErrorCodes } from "../src/index.mjs";
+import { createHmac } from "node:crypto";
+import PlagiarismCheckerPlus, {
+  PlagiarismCheckerPlusError,
+  ScanTimeoutError,
+  ErrorCodes,
+  verifyWebhookSignature,
+  WEBHOOK_SIGNATURE_HEADER,
+} from "../src/index.mjs";
 
 function mockFetch(responses) {
   const calls = [];
@@ -42,15 +49,53 @@ test("getScan and listScans pass query parameters", async () => {
   assert.ok(calls[1].url.endsWith("/scans?page=2&limit=5"));
 });
 
-test("errors expose status and code", async () => {
-  const { fetch } = mockFetch([{ status: 403, body: { error: { code: "plan_required", message: "API access requires a paid plan." } } }]);
+test("errors expose status, code and detail fields", async () => {
+  const billingUrl = "https://app.plagiarismcheckerplus.com/developers/billing";
+  const { fetch } = mockFetch([
+    {
+      status: 402,
+      body: { error: { code: "trial_exhausted", message: "Your free API trial cannot cover this request.", wordsNeeded: 900, trialRemaining: 100, trialTotal: 2000, billingUrl } },
+    },
+  ]);
   const client = new PlagiarismCheckerPlus({ apiKey: "k", fetch });
-  await assert.rejects(client.getAccount(), (error) => {
+  await assert.rejects(client.createScan("text", ["plagiarism"]), (error) => {
     assert.ok(error instanceof PlagiarismCheckerPlusError);
-    assert.equal(error.status, 403);
-    assert.equal(error.code, ErrorCodes.PLAN_REQUIRED);
+    assert.equal(error.status, 402);
+    assert.equal(error.code, ErrorCodes.TRIAL_EXHAUSTED);
+    assert.equal(error.body.error.billingUrl, billingUrl);
     return true;
   });
+});
+
+test("error code constants include the billing codes and keep the deprecated one", () => {
+  assert.equal(ErrorCodes.INSUFFICIENT_WORDS, "insufficient_words");
+  assert.equal(ErrorCodes.TRIAL_EXHAUSTED, "trial_exhausted");
+  assert.equal(ErrorCodes.KEY_CAP_REACHED, "key_cap_reached");
+  assert.equal(ErrorCodes.PLAN_REQUIRED, "plan_required");
+});
+
+test("verifyWebhookSignature accepts a valid signature and rejects bad ones", () => {
+  const secret = "whsec_test_secret";
+  const body = JSON.stringify({ id: "evt_1", type: "scan.completed", createdAt: "2026-11-18T00:00:00Z", data: {} });
+  const t = 1_800_000_000;
+  const sign = (ts, payload, key = secret) => createHmac("sha256", key).update(`${ts}.${payload}`).digest("hex");
+  const header = `t=${t},v1=${sign(t, body)}`;
+
+  assert.equal(WEBHOOK_SIGNATURE_HEADER, "PCP-Signature");
+  assert.equal(verifyWebhookSignature(secret, header, body, { now: t + 10 }), true);
+  assert.equal(verifyWebhookSignature(secret, header, Buffer.from(body), { now: t }), true);
+  // Several v1 entries (secret rotation): any match passes.
+  assert.equal(verifyWebhookSignature(secret, `t=${t},v1=${sign(t, body, "other")},v1=${sign(t, body)}`, body, { now: t }), true);
+
+  assert.equal(verifyWebhookSignature("whsec_wrong", header, body, { now: t }), false);
+  assert.equal(verifyWebhookSignature(secret, header, body + " ", { now: t }), false);
+  assert.equal(verifyWebhookSignature(secret, header, body, { now: t + 301 }), false);
+  assert.equal(verifyWebhookSignature(secret, header, body, { now: t - 301 }), false);
+  assert.equal(verifyWebhookSignature(secret, header, body, { now: t + 500, tolerance: 600 }), true);
+  assert.equal(verifyWebhookSignature(secret, `v1=${sign(t, body)}`, body, { now: t }), false);
+  assert.equal(verifyWebhookSignature(secret, `t=${t}`, body, { now: t }), false);
+  assert.equal(verifyWebhookSignature(secret, `t=${t},v1=abc`, body, { now: t }), false);
+  assert.equal(verifyWebhookSignature(secret, null, body, { now: t }), false);
 });
 
 test("waitForScan backs off and honours Retry-After", async () => {
